@@ -1,0 +1,901 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MakeupVibes - Galería de Looks de Maquillaje</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/swiper/swiper-bundle.min.css" />
+  <script src="https://unpkg.com/swiper/swiper-bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    /* Animaciones suaves para el acordeón */
+    details > div {
+      transition: all 0.3s ease-in-out;
+      max-height: 0;
+      overflow: hidden;
+    }
+    details[open] > div {
+      max-height: 500px;
+    }
+    /* Estilo para tooltips */
+    .tooltip {
+      position: relative;
+    }
+    .tooltip .tooltip-text {
+      visibility: hidden;
+      width: 250px;
+      background-color: #1e40af;
+      color: white;
+      text-align: left;
+      border-radius: 6px;
+      padding: 8px;
+      position: absolute;
+      z-index: 10;
+      bottom: 125%;
+      left: 50%;
+      transform: translateX(-50%);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .tooltip:hover .tooltip-text {
+      visibility: visible;
+      opacity: 1;
+    }
+    .tooltip-text img {
+      max-width: 100px;
+      height: auto;
+      margin-top: 8px;
+    }
+    /* Estilo para modo oscuro */
+    .dark-mode {
+      background-color: #1e3a8a;
+      color: #e5e7eb;
+    }
+    .dark-mode header, .dark-mode footer {
+      background-color: #1e40af;
+    }
+    .dark-mode h1, .dark-mode h2, .dark-mode h3 {
+      color: #bfdbfe;
+    }
+    .dark-mode .bg-white {
+      background-color: #1f2937;
+    }
+    .dark-mode .text-blue-700 {
+      color: #bfdbfe;
+    }
+    .dark-mode .text-blue-600 {
+      color: #93c5fd;
+    }
+    .dark-mode .border-blue-200 {
+      border-color: #4b5563;
+    }
+    .dark-mode .bg-blue-400 {
+      background-color: #3b82f6;
+    }
+    .dark-mode .hover\:bg-blue-500:hover {
+      background-color: #2563eb;
+    }
+    .dark-mode .text-gray-600 {
+      color: #d1d5db;
+    }
+    .dark-mode .text-gray-700 {
+      color: #e5e7eb;
+    }
+    /* Estilo para barra de progreso */
+    .progress-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 1rem;
+    }
+    .progress-dot {
+      width: 10px;
+      height: 10px;
+      background-color: #bfdbfe;
+      border-radius: 50%;
+      transition: background-color 0.3s;
+    }
+    .progress-dot.active {
+      background-color: #3b82f6;
+    }
+    .dark-mode .progress-dot {
+      background-color: #6b7280;
+    }
+    .dark-mode .progress-dot.active {
+      background-color: #93c5fd;
+    }
+    /* Estilo para spinner de carga */
+    .loading-spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #ffffff;
+      border-top: 2px solid #3b82f6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-left: 8px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body class="bg-blue-100 text-gray-800 font-sans transition-colors duration-300">
+  <header class="bg-blue-200 py-6 text-center">
+    <div class="flex justify-end px-6">
+      <button id="themeToggle" class="text-blue-700 hover:text-blue-800" aria-label="Cambiar entre modo claro y oscuro">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+        </svg>
+      </button>
+    </div>
+    <h1 class="text-4xl font-bold text-blue-700">MakeupVibes</h1>
+    <p class="mt-2 text-lg text-blue-600">Explora y crea tu look de maquillaje perfecto</p>
+  </header>
+
+  <main class="max-w-6xl mx-auto p-6">
+    <section id="filters" class="mb-6">
+      <h2 class="text-2xl font-semibold text-blue-700 mb-4">Filtra tu Look</h2>
+      <div class="flex flex-wrap gap-4">
+        <select id="styleFilter" class="p-2 border border-blue-200 rounded" aria-label="Filtrar por estilo">
+          <option value="all">Todos los Estilos</option>
+          <option value="natural">Natural</option>
+          <option value="glam">Glam</option>
+          <option value="artístico">Artístico</option>
+        </select>
+        <select id="occasionFilter" class="p-2 border border-blue-200 rounded" aria-label="Filtrar por ocasión">
+          <option value="all">Todas las Ocasiones</option>
+          <option value="diaria">Diaria</option>
+          <option value="boda">Boda</option>
+          <option value="fiesta">Fiesta</option>
+        </select>
+        <select id="colorFilter" class="p-2 border border-blue-200 rounded" aria-label="Filtrar por color">
+          <option value="all">Todos los Colores</option>
+          <option value="neutros">Neutros</option>
+          <option value="vibrantes">Vibrantes</option>
+          <option value="pasteles">Pasteles</option>
+        </select>
+      </div>
+    </section>
+
+    <section id="favorites" class="hidden mb-6">
+      <h2 class="text-2xl font-semibold text-blue-700 mb-4">Tus Looks Favoritos</h2>
+      <div id="favoritesGallery" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+    </section>
+
+    <section id="gallery" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      <!-- Las tarjetas se generarán dinámicamente con JS -->
+    </section>
+
+    <section id="tutorial" class="hidden mt-6 bg-white shadow-lg rounded-lg p-6">
+      <h2 id="tutorialTitle" class="text-2xl font-semibold text-blue-700 mb-4"></h2>
+      <div id="progressBar" class="progress-bar"></div>
+      <div id="steps" class="space-y-2"></div>
+      <h3 class="text-xl font-semibold text-blue-700 mt-6">Productos Recomendados</h3>
+      <ul id="products" class="list-disc pl-5"></ul>
+      <button id="downloadPDF" class="mt-4 bg-blue-400 text-white py-2 px-4 rounded hover:bg-blue-500">Descargar Tutorial como PDF</button>
+      <button id="backToGallery" class="mt-4 ml-4 bg-blue-400 text-white py-2 px-4 rounded hover:bg-blue-500">Volver a la Galería</button>
+    </section>
+  </main>
+
+  <footer class="bg-blue-200 py-4 text-center text-blue-700">
+    <p>&copy; 2025 MakeupVibes. Todos los derechos reservados.</p>
+  </footer>
+
+  <script>
+    const looks = [
+      { 
+        id: 1, 
+        style: 'natural', 
+        occasion: 'diaria', 
+        color: 'neutros', 
+        title: 'Look Natural Diario', 
+        image: 'https://placehold.co/800x600?text=Look+1', 
+        steps: [
+          { 
+            title: 'Paso 1: Preparación de la Piel', 
+            description: 'Comienza limpiando tu rostro con un limpiador suave para eliminar impurezas. Aplica una crema hidratante ligera en todo el rostro, masajeando con movimientos circulares desde el centro hacia las sienes para activar la circulación. Espera 1-2 minutos para que se absorba completamente. Usa el Essence Pure Nude Sunlighter como primer para un acabado luminoso y natural, aplicando una pequeña cantidad con los dedos en zonas clave como mejillas y frente.', 
+            images: ['https://placehold.co/400x300?text=Paso+1', 'https://placehold.co/400x300?text=Paso+1+Alt']
+          },
+          { 
+            title: 'Paso 2: Base Ligera', 
+            description: 'Elige una base con cobertura media para unificar el tono sin sobrecargar la piel. Toma una pequeña cantidad de Maybelline Fit Me Matte + Poreless Foundation con una esponja húmeda y aplica desde el centro del rostro hacia los bordes, difuminando bien en el cuello para evitar líneas. Usa toquecitos suaves para un acabado aireado y natural, ideal para el día a día.', 
+            images: ['https://placehold.co/400x300?text=Paso+2', 'https://placehold.co/400x300?text=Paso+2+Alt']
+          },
+          { 
+            title: 'Paso 3: Corrección', 
+            description: 'Identifica áreas como ojeras o rojeces. Aplica el Essence Stay All Day 16h Concealer directamente con el aplicador en forma de triángulo bajo los ojos y puntos en imperfecciones. Difumina con la esponja en movimientos de rebote para un efecto seamless. Sella con un polvo translúcido ligero para que dure todo el día sin acumularse.', 
+            images: ['https://placehold.co/400x300?text=Paso+3', 'https://placehold.co/400x300?text=Paso+3+Alt']
+          },
+          { 
+            title: 'Paso 4: Ojos', 
+            description: 'Para una mirada fresca, aplica una sombra neutra beige en el párpado móvil con un pincel suave, difuminando hacia las sienes. Luego, usa la Maybelline Lash Sensational Sky High Mascara en tono marrón: coloca el cepillo en la raíz de las pestañas superiores y zigzaguea hacia las puntas para alargar sin apelmazar. Evita las pestañas inferiores para mantener la naturalidad.', 
+            images: ['https://placehold.co/400x300?text=Paso+4', 'https://placehold.co/400x300?text=Paso+4+Alt']
+          },
+          { 
+            title: 'Paso 5: Labios y Mejillas', 
+            description: 'Sonríe para localizar los pómulos y aplica un rubor en crema con los dedos, difuminando hacia las orejas para un rubor natural. Para los labios, usa el Essence Juicy Bomb Shiny Lipgloss en tono nude: rellena desde el centro hacia los bordes con el aplicador para un brillo jugoso y duradero. Termina con un toque de iluminador en el arco de cupido para resaltar.', 
+            images: ['https://placehold.co/400x300?text=Paso+5', 'https://placehold.co/400x300?text=Paso+5+Alt']
+          }
+        ], 
+        products: [
+          { name: 'Essence Pure Nude Sunlighter (Primer)', tooltip: 'Primer iluminador para un glow natural, ideal para pieles mixtas.', searchTerm: 'essence primer' },
+          { name: 'Maybelline Fit Me Matte + Poreless Foundation (Base)', tooltip: 'Base de cobertura media, perfecta para un acabado mate y duradero.', searchTerm: 'maybelline foundation' },
+          { name: 'Essence Stay All Day 16h Concealer (Corrector)', tooltip: 'Corrector de larga duración, cubre ojeras e imperfecciones sin apelmazar.', searchTerm: 'essence concealer' },
+          { name: 'Maybelline Lash Sensational Sky High Mascara (Brown) (Máscara)', tooltip: 'Máscara marrón para pestañas largas y definidas, look natural.', searchTerm: 'maybelline mascara' },
+          { name: 'Essence Juicy Bomb Shiny Lipgloss (Nude) (Gloss)', tooltip: 'Gloss nude brillante, hidrata y da volumen sutil.', searchTerm: 'essence lipgloss' }
+        ]
+      },
+      { 
+        id: 2, 
+        style: 'glam', 
+        occasion: 'boda', 
+        color: 'vibrantes', 
+        title: 'Look Glam de Boda', 
+        image: 'https://placehold.co/800x600?text=Look+2', 
+        steps: [
+          { 
+            title: 'Paso 1: Preparación', 
+            description: 'Limpia e hidrata tu piel con una crema nutritiva, enfocándote en el contorno de ojos para evitar líneas. Aplica el Maybelline Super Stay Skin Tint como primer hidratante: extiéndelo con los dedos en todo el rostro, masajeando hacia arriba para un glow duradero. Espera 2 minutos y sella con polvos sueltos para una base suave que resista el día entero.', 
+            images: ['https://placehold.co/400x300?text=Paso+1', 'https://placehold.co/400x300?text=Paso+1+Alt']
+          },
+          { 
+            title: 'Paso 2: Base', 
+            description: 'Para una cobertura impecable, elige una base de larga duración. Toma la Essence Glow Serum Primer y mézclala con tu base habitual, aplicando con una brocha densa desde la frente hacia las mejillas en movimientos circulares. Difumina en el cuello y orejas para un acabado uniforme y radiante, perfecto para fotos de boda.', 
+            images: ['https://placehold.co/400x300?text=Paso+2', 'https://placehold.co/400x300?text=Paso+2+Alt']
+          },
+          { 
+            title: 'Paso 3: Contorno e Iluminador', 
+            description: 'Define los contornos con el Maybelline Fit Me Contour Kit: aplica el tono bronceador bajo los pómulos y en los lados de la nariz con un pincel angular, difuminando hacia arriba. Luego, coloca el iluminador en los pómulos altos, puente de la nariz y arco de cupido con un pincel de abanico para un efecto esculpido y luminoso sin exceso.', 
+            images: ['https://placehold.co/400x300?text=Paso+3', 'https://placehold.co/400x300?text=Paso+3+Alt']
+          },
+          { 
+            title: 'Paso 4: Ojos', 
+            description: 'Crea profundidad con la Essence Eyeshadow Palette (Golden Vibes): aplica el tono dorado en el párpado móvil con un pincel plano, difuminando el marrón en el hueco del ojo. Traza un delineador alado con el Maybelline Tattoo Studio Ink Pen, empezando del centro hacia afuera. Finaliza con múltiples capas de máscara waterproof para pestañas voluminosas.', 
+            images: ['https://placehold.co/400x300?text=Paso+4', 'https://placehold.co/400x300?text=Paso+4+Alt']
+          },
+          { 
+            title: 'Paso 5: Labios', 
+            description: 'Perfila los labios con un lápiz nude y rellena con el Maybelline Super Stay Vinyl Ink Lipstick en tono peachy: aplica desde el centro, presionando ligeramente para un acabado vinílico brillante. Difumina los bordes con un pincel para un efecto suave y elegante. Sella con un spray fijador para que dure durante el banquete.', 
+            images: ['https://placehold.co/400x300?text=Paso+5', 'https://placehold.co/400x300?text=Paso+5+Alt']
+          }
+        ], 
+        products: [
+          { name: 'Maybelline Super Stay Skin Tint (Primer/Base)', tooltip: 'Base hidratante con acabado luminoso, ideal para eventos largos.', searchTerm: 'maybelline skin tint' },
+          { name: 'Essence Glow Serum Primer (Primer)', tooltip: 'Primer con glow que prepara la piel para un maquillaje radiante.', searchTerm: 'essence primer' },
+          { name: 'Maybelline Fit Me Contour Kit (Contorno)', tooltip: 'Kit de contorno e iluminador para esculpir el rostro.', searchTerm: 'maybelline contour' },
+          { name: 'Essence Eyeshadow Palette (Golden Vibes) (Sombras)', tooltip: 'Paleta de sombras doradas para un look glamuroso.', searchTerm: 'essence eyeshadow' },
+          { name: 'Maybelline Super Stay Vinyl Ink Lipstick (Peachy) (Labial)', tooltip: 'Labial vinílico de larga duración, ideal para bodas.', searchTerm: 'maybelline lipstick' }
+        ]
+      },
+      { 
+        id: 3, 
+        style: 'artístico', 
+        occasion: 'fiesta', 
+        color: 'pasteles', 
+        title: 'Look Artístico de Fiesta', 
+        image: 'https://placehold.co/800x600?text=Look+3', 
+        steps: [
+          { 
+            title: 'Paso 1: Preparación', 
+            description: 'Exfolia suavemente tu piel y aplica un tónico refrescante. Usa el Essence Glow Serum Primer como base iluminadora: extiéndelo con una esponja en todo el rostro para un canvas glowy, enfocándote en las zonas altas para resaltar bajo luces de fiesta. Deja actuar 1 minuto antes de continuar.', 
+            images: ['https://placehold.co/400x300?text=Paso+1', 'https://placehold.co/400x300?text=Paso+1+Alt']
+          },
+          { 
+            title: 'Paso 2: Base', 
+            description: 'Para un acabado luminoso, aplica la Maybelline Fit Me Dewy + Smooth Foundation con una brocha húmeda: empieza en el centro del rostro y difumina hacia afuera en capas finas, construyendo cobertura donde necesites. Sella con polvos solo en la zona T para mantener el brillo sin grasa.', 
+            images: ['https://placehold.co/400x300?text=Paso+2', 'https://placehold.co/400x300?text=Paso+2+Alt']
+          },
+          { 
+            title: 'Paso 3: Ojos', 
+            description: 'Juega con colores: aplica la Essence Crystal Power Eyeshadow Palette en tonos pastel lila en el párpado móvil con los dedos para adherencia, difuminando azul claro en el hueco. Añade glitter en el centro con un pincel seco para un toque festivo. Riza las pestañas antes de la máscara.', 
+            images: ['https://placehold.co/400x300?text=Paso+3', 'https://placehold.co/400x300?text=Paso+3+Alt']
+          },
+          { 
+            title: 'Paso 4: Delineado Gráfico', 
+            description: 'Dibuja líneas audaces con el Maybelline Hyper Easy Liquid Eyeliner: empieza con una línea fina en el párpado superior, extendiendo en forma gráfica (como alas o puntos) hacia afuera. Usa un tono vibrante para el look artístico, difuminando ligeramente los bordes con un cotonete para un efecto difuso y moderno.', 
+            images: ['https://placehold.co/400x300?text=Paso+4', 'https://placehold.co/400x300?text=Paso+4+Alt']
+          },
+          { 
+            title: 'Paso 5: Labios', 
+            description: 'Rellena con el Essence Shine Shine Shine Lipgloss en tono pastel pop: aplica directamente del tubo desde el arco de cupido hacia los bordes, presionando labios para distribuir uniformemente. Añade un toque de gloss en el centro para volumen. Complementa con rubor pastel en mejillas para cohesión.', 
+            images: ['https://placehold.co/400x300?text=Paso+5', 'https://placehold.co/400x300?text=Paso+5+Alt']
+          }
+        ], 
+        products: [
+          { name: 'Essence Glow Serum Primer (Primer)', tooltip: 'Primer iluminador para un acabado brillante, ideal para fiestas.', searchTerm: 'essence primer' },
+          { name: 'Maybelline Fit Me Dewy + Smooth Foundation (Base)', tooltip: 'Base luminosa para un look radiante en eventos nocturnos.', searchTerm: 'maybelline foundation' },
+          { name: 'Essence Crystal Power Eyeshadow Palette (Sombras)', tooltip: 'Paleta de sombras pasteles para looks artísticos y vibrantes.', searchTerm: 'essence eyeshadow' },
+          { name: 'Maybelline Hyper Easy Liquid Eyeliner (Delineador)', tooltip: 'Delineador líquido preciso para líneas gráficas audaces.', searchTerm: 'maybelline eyeliner' },
+          { name: 'Essence Shine Shine Shine Lipgloss (Pastel Pop) (Gloss)', tooltip: 'Gloss brillante en tonos pastel, perfecto para un look festivo.', searchTerm: 'essence lipgloss' }
+        ]
+      },
+      { 
+        id: 4, 
+        style: 'glam', 
+        occasion: 'diaria', 
+        color: 'neutros', 
+        title: 'Look Glam Diario', 
+        image: 'https://placehold.co/800x600?text=Look+4', 
+        steps: [
+          { 
+            title: 'Paso 1: Preparación de la Piel', 
+            description: 'Limpia tu rostro con un limpiador suave para eliminar impurezas y aplica una crema hidratante con SPF para proteger tu piel durante el día. Usa el Essence Glow Serum Primer como base: distribuye una gota del tamaño de un guisante con las yemas de los dedos en todo el rostro, enfocándote en las zonas altas (frente, pómulos) para un brillo sutil. Deja que se absorba durante 1-2 minutos para un canvas impecable y duradero.', 
+            images: ['https://placehold.co/400x300?text=Paso+1', 'https://placehold.co/400x300?text=Paso+1+Alt']
+          },
+          { 
+            title: 'Paso 2: Base Impecable', 
+            description: 'Aplica la Maybelline Fit Me Matte + Poreless Foundation para un acabado pulido pero natural. Usa una esponja húmeda para tomar una pequeña cantidad y distribúyela desde el centro del rostro hacia afuera con movimientos suaves. Difumina cuidadosamente en la línea de la mandíbula y el cuello para evitar cortes visibles. Para un toque glam, aplica una capa fina adicional en las mejillas para un efecto uniforme.', 
+            images: ['https://placehold.co/400x300?text=Paso+2', 'https://placehold.co/400x300?text=Paso+2+Alt']
+          },
+          { 
+            title: 'Paso 3: Contorno y Resplandor', 
+            description: 'Esculpe tu rostro con el Maybelline Fit Me Contour Kit: con un pincel angular, aplica el bronceador justo debajo de los pómulos y en los laterales de la nariz, difuminando hacia arriba para un efecto natural. Añade el iluminador Essence en los puntos altos (pómulos, puente de la nariz, arco de cupido) con un pincel pequeño en abanico. Usa toques ligeros para un brillo sofisticado que capte la luz sin exagerar.', 
+            images: ['https://placehold.co/400x300?text=Paso+3', 'https://placehold.co/400x300?text=Paso+3+Alt']
+          },
+          { 
+            title: 'Paso 4: Ojos Definidos', 
+            description: 'Crea una mirada elegante con la Essence Eyeshadow Palette (Nude Vibes): aplica un tono taupe mate en el párpado móvil con un pincel plano, difuminando un gris suave en la cuenca para profundidad. Traza una línea fina con el Maybelline Tattoo Studio Ink Pen a lo largo de las pestañas superiores, alargándola ligeramente para un efecto sutil. Finaliza con una capa de Maybelline Lash Sensational Sky High Mascara para pestañas largas y definidas.', 
+            images: ['https://placehold.co/400x300?text=Paso+4', 'https://placehold.co/400x300?text=Paso+4+Alt']
+          },
+          { 
+            title: 'Paso 5: Labios y Toque Final', 
+            description: 'Perfila tus labios con un lápiz nude para mayor precisión. Aplica el Maybelline Super Stay Matte Ink en un tono nude cálido, comenzando desde el centro y difuminando hacia los bordes con el aplicador. Para un toque glam, agrega una capa fina de Essence Juicy Bomb Gloss en el centro de los labios para un efecto voluminoso. Sonríe y aplica un rubor en crema en los pómulos, difuminando hacia las sienes para un acabado fresco.', 
+            images: ['https://placehold.co/400x300?text=Paso+5', 'https://placehold.co/400x300?text=Paso+5+Alt']
+          }
+        ], 
+        products: [
+          { name: 'Essence Glow Serum Primer (Primer)', tooltip: 'Primer matificante para un look diario suave y duradero.', searchTerm: 'essence primer' },
+          { name: 'Maybelline Fit Me Matte + Poreless Foundation (Base)', tooltip: 'Base mate ideal para un acabado profesional diario.', searchTerm: 'maybelline foundation' },
+          { name: 'Maybelline Fit Me Contour Kit (Contorno)', tooltip: 'Kit de contorno para un look esculpido y elegante.', searchTerm: 'maybelline contour' },
+          { name: 'Essence Eyeshadow Palette (Nude Vibes) (Sombras)', tooltip: 'Sombras neutras para un look glam diario.', searchTerm: 'essence eyeshadow' },
+          { name: 'Maybelline Super Stay Matte Ink (Nude) (Labial)', tooltip: 'Labial mate nude de larga duración, perfecto para el día.', searchTerm: 'maybelline lipstick' }
+        ]
+      },
+      { 
+        id: 5, 
+        style: 'natural', 
+        occasion: 'boda', 
+        color: 'pasteles', 
+        title: 'Look Natural de Boda', 
+        image: 'https://placehold.co/800x600?text=Look+5', 
+        steps: [
+          { 
+            title: 'Paso 1: Preparación Radiante', 
+            description: 'Limpia tu piel con un limpiador suave y aplica un sérum hidratante para un acabado luminoso. Usa el Essence Pure Nude Sunlighter como primer: distribuye una pequeña cantidad con las yemas de los dedos en mejillas, frente y mentón, masajeando suavemente hacia arriba para un brillo etéreo. Deja que se absorba durante 1 minuto para preparar la piel para una boda inolvidable.', 
+            images: ['https://placehold.co/400x300?text=Paso+1', 'https://placehold.co/400x300?text=Paso+1+Alt']
+          },
+          { 
+            title: 'Paso 2: Base Luminosa', 
+            description: 'Aplica la Maybelline Fit Me Dewy + Smooth Foundation para un acabado fresco y natural. Usa una brocha suave para distribuir una capa fina desde el centro del rostro hacia afuera, asegurándote de difuminar bien en el cuello y las orejas para un look uniforme. Este acabado dewy es ideal para capturar la luz suave en fotos de boda.', 
+            images: ['https://placehold.co/400x300?text=Paso+2', 'https://placehold.co/400x300?text=Paso+2+Alt']
+          },
+          { 
+            title: 'Paso 3: Corrección Suave', 
+            description: 'Corrige ojeras y pequeñas imperfecciones con el Essence Stay All Day 16h Concealer en un tono pastel claro. Aplica en forma de triángulo invertido bajo los ojos y en puntos específicos con el aplicador. Difumina con una esponja húmeda en movimientos suaves para un acabado impecable. Sella con un polvo translúcido ligero para mantener la frescura durante toda la ceremonia.', 
+            images: ['https://placehold.co/400x300?text=Paso+3', 'https://placehold.co/400x300?text=Paso+3+Alt']
+          },
+          { 
+            title: 'Paso 4: Ojos Románticos', 
+            description: 'Crea una mirada soñadora con la Essence Crystal Power Palette: aplica un tono lila pastel en el párpado móvil con un pincel suave, difuminando un rosa claro en la cuenca para suavidad. Riza las pestañas y aplica una capa de Maybelline Lash Sensational Sky High Mascara en negro suave, enfocándote en las pestañas superiores para un efecto natural y romántico.', 
+            images: ['https://placehold.co/400x300?text=Paso+4', 'https://placehold.co/400x300?text=Paso+4+Alt']
+          },
+          { 
+            title: 'Paso 5: Labios y Mejillas', 
+            description: 'Sonríe y aplica un rubor en crema pastel en los pómulos con las yemas de los dedos, difuminando hacia las sienes para un efecto sonrojado y fresco. Para los labios, usa el Essence Juicy Bomb Gloss en rosa claro: aplica desde el arco de cupido hacia los bordes para un brillo sutil que complemente el look nupcial. Termina con un toque de iluminador en el arco de cupido para un resplandor delicado.', 
+            images: ['https://placehold.co/400x300?text=Paso+5', 'https://placehold.co/400x300?text=Paso+5+Alt']
+          }
+        ], 
+        products: [
+          { name: 'Essence Pure Nude Sunlighter (Primer)', tooltip: 'Primer iluminador para un glow romántico en bodas.', searchTerm: 'essence primer' },
+          { name: 'Maybelline Fit Me Dewy + Smooth Foundation (Base)', tooltip: 'Base luminosa para un acabado etéreo en eventos.', searchTerm: 'maybelline foundation' },
+          { name: 'Essence Stay All Day 16h Concealer (Pastel) (Corrector)', tooltip: 'Corrector pastel para un look fresco y natural.', searchTerm: 'essence concealer' },
+          { name: 'Essence Crystal Power Palette (Sombras)', tooltip: 'Sombras pasteles para un toque romántico y suave.', searchTerm: 'essence eyeshadow' },
+          { name: 'Essence Juicy Bomb Gloss (Rosa Claro) (Gloss)', tooltip: 'Gloss rosa claro para un brillo natural y elegante.', searchTerm: 'essence lipgloss' }
+        ]
+      },
+      { 
+        id: 6, 
+        style: 'artístico', 
+        occasion: 'diaria', 
+        color: 'vibrantes', 
+        title: 'Look Artístico Diario', 
+        image: 'https://placehold.co/800x600?text=Look+6', 
+        steps: [
+          { 
+            title: 'Paso 1: Preparación Audaz', 
+            description: 'Comienza con un limpiador suave para un lienzo fresco, seguido de un tónico revitalizante. Aplica el Maybelline Super Stay Skin Tint como base vibrante: distribuye con una esponja húmeda en movimientos ascendentes, enfocándote en las mejillas y la frente para un acabado luminoso que resista el día. Deja que se asiente por 1 minuto para una textura uniforme.', 
+            images: ['https://placehold.co/400x300?text=Paso+1', 'https://placehold.co/400x300?text=Paso+1+Alt']
+          },
+          { 
+            title: 'Paso 2: Base Creativa', 
+            description: 'Mezcla el Essence Glow Serum Primer con una base ligera para un efecto radiante. Aplica con una brocha plana desde el centro del rostro hacia afuera, asegurándote de cubrir uniformemente las zonas donde planeas agregar toques artísticos. Difumina en la mandíbula para un acabado sin cortes, ideal para un look diario con personalidad.', 
+            images: ['https://placehold.co/400x300?text=Paso+2', 'https://placehold.co/400x300?text=Paso+2+Alt']
+          },
+          { 
+            title: 'Paso 3: Ojos Vibrantes', 
+            description: 'Da rienda suelta a tu creatividad con la Maybelline Nudes of New York Palette: aplica un tono rojo vibrante en el tercio exterior del párpado móvil con un pincel pequeño, difuminando un naranja cálido hacia la cuenca para un efecto degradado. Añade un toque de glitter Essence en el centro del párpado con los dedos para un brillo artístico que destaque en el día a día.', 
+            images: ['https://placehold.co/400x300?text=Paso+3', 'https://placehold.co/400x300?text=Paso+3+Alt']
+          },
+          { 
+            title: 'Paso 4: Delineado Gráfico', 
+            description: 'Crea un look audaz con el Essence Liquid Eyeliner en un tono vibrante (como azul o verde). Dibuja una línea asimétrica desde la esquina interna del ojo, extendiéndola hacia una forma gráfica (como un triángulo pequeño o líneas paralelas). Usa un cotonete para suavizar los bordes si buscas un efecto difuminado, perfecto para un toque artístico diario.', 
+            images: ['https://placehold.co/400x300?text=Paso+4', 'https://placehold.co/400x300?text=Paso+4+Alt']
+          },
+          { 
+            title: 'Paso 5: Labios Pop', 
+            description: 'Define tus labios con el Maybelline Super Stay Vinyl Ink en un tono coral brillante. Aplica desde el centro con el aplicador, asegurándote de cubrir uniformemente para un pop de color duradero. Agrega un toque de gloss Essence en el centro para un efecto 3D. Complementa con un rubor vibrante difuminado en las mejillas para un look cohesivo y lleno de vida.', 
+            images: ['https://placehold.co/400x300?text=Paso+5', 'https://placehold.co/400x300?text=Paso+5+Alt']
+          }
+        ], 
+        products: [
+          { name: 'Maybelline Super Stay Skin Tint (Primer)', tooltip: 'Base vibrante para un look artístico duradero.', searchTerm: 'maybelline skin tint' },
+          { name: 'Essence Glow Serum Primer (Primer)', tooltip: 'Primer para un canvas brillante y audaz.', searchTerm: 'essence primer' },
+          { name: 'Maybelline Nudes of New York Palette (Sombras)', tooltip: 'Paleta vibrante para looks artísticos diarios.', searchTerm: 'maybelline eyeshadow' },
+          { name: 'Essence Liquid Eyeliner (Colores) (Delineador)', tooltip: 'Delineador en tonos vibrantes para líneas gráficas.', searchTerm: 'essence eyeliner' },
+          { name: 'Maybelline Super Stay Vinyl (Coral) (Labial)', tooltip: 'Labial coral brillante para un pop de color.', searchTerm: 'maybelline lipstick' }
+        ]
+      },
+      { 
+        id: 7, 
+        style: 'natural', 
+        occasion: 'fiesta', 
+        color: 'vibrantes', 
+        title: 'Look Natural de Fiesta', 
+        image: 'https://placehold.co/800x600?text=Look+7', 
+        steps: [
+          { 
+            title: 'Paso 1: Preparación Luminosa', 
+            description: 'Limpia tu rostro con un limpiador suave y aplica un sérum hidratante para una piel jugosa. Usa el Essence Pure Nude Sunlighter como primer: distribuye con las yemas de los dedos en las zonas altas (pómulos, frente, puente de la nariz) para un brillo natural que resalte bajo las luces de la fiesta. Deja absorber por 1 minuto antes de continuar.', 
+            images: ['https://placehold.co/400x300?text=Paso+1', 'https://placehold.co/400x300?text=Paso+1+Alt']
+          },
+          { 
+            title: 'Paso 2: Base Duradera', 
+            description: 'Aplica la Maybelline Fit Me Dewy + Smooth Foundation con una esponja húmeda para un acabado luminoso y resistente. Comienza en el centro del rostro y difumina hacia afuera en movimientos suaves, asegurándote de cubrir el cuello para un look uniforme. Este acabado dewy es perfecto para mantener un aspecto fresco durante horas de baile.', 
+            images: ['https://placehold.co/400x300?text=Paso+2', 'https://placehold.co/400x300?text=Paso+2+Alt']
+          },
+          { 
+            title: 'Paso 3: Corrección Natural', 
+            description: 'Corrige ojeras o rojeces con el Essence Stay All Day 16h Concealer. Aplica en forma de triángulo bajo los ojos y en imperfecciones con el aplicador, difuminando con una esponja en pequeños toques para un acabado sin costuras. Sella con un polvo translúcido solo en la zona T para mantener el brillo natural en el resto del rostro.', 
+            images: ['https://placehold.co/400x300?text=Paso+3', 'https://placehold.co/400x300?text=Paso+3+Alt']
+          },
+          { 
+            title: 'Paso 4: Ojos Festivos', 
+            description: 'Aplica una sombra vibrante suave de la Maybelline Nudes of New York Palette (como un coral claro) en el párpado móvil con un pincel suave, difuminando hacia la cuenca para un efecto natural. Usa el Maybelline Lash Sensational Sky High Mascara en negro, aplicando dos capas en las pestañas superiores para definición. Traza una línea fina con un delineador marrón para un toque sutil.', 
+            images: ['https://placehold.co/400x300?text=Paso+4', 'https://placehold.co/400x300?text=Paso+4+Alt']
+          },
+          { 
+            title: 'Paso 5: Labios y Mejillas', 
+            description: 'Aplica un rubor vibrante en crema en los pómulos, difuminando con los dedos hacia las sienes para un efecto sonrojado y festivo. Para los labios, usa el Essence Juicy Bomb Gloss en un tono rojo vibrante: aplica desde el centro hacia los bordes para un brillo jugoso. Termina con un toque de iluminador en el arco de cupido para un acabado radiante que brille en la pista de baile.', 
+            images: ['https://placehold.co/400x300?text=Paso+5', 'https://placehold.co/400x300?text=Paso+5+Alt']
+          }
+        ], 
+        products: [
+          { name: 'Essence Pure Nude Sunlighter (Primer)', tooltip: 'Primer iluminador para un glow natural en fiestas.', searchTerm: 'essence primer' },
+          { name: 'Maybelline Fit Me Dewy Foundation (Base)', tooltip: 'Base luminosa para un look jugoso y festivo.', searchTerm: 'maybelline foundation' },
+          { name: 'Essence Stay All Day Concealer (Corrector)', tooltip: 'Corrector para un acabado fresco en eventos.', searchTerm: 'essence concealer' },
+          { name: 'Maybelline Lash Sensational Sky High (Máscara)', tooltip: 'Máscara para pestañas definidas y naturales.', searchTerm: 'maybelline mascara' },
+          { name: 'Essence Juicy Bomb Gloss (Rojo Vibrante) (Gloss)', tooltip: 'Gloss rojo para un toque vibrante y festivo.', searchTerm: 'essence lipgloss' }
+        ]
+      },
+      { 
+        id: 8, 
+        style: 'glam', 
+        occasion: 'fiesta', 
+        color: 'pasteles', 
+        title: 'Look Glam de Fiesta', 
+        image: 'https://placehold.co/800x600?text=Look+8', 
+        steps: [
+          { 
+            title: 'Paso 1: Preparación Brillante', 
+            description: 'Prepara tu piel con un limpiador suave y una crema hidratante rica para un acabado glowy. Aplica el Maybelline Super Stay Skin Tint como primer: distribuye con una esponja húmeda en movimientos circulares, enfocándote en las mejillas y la frente para un brillo duradero que resista la noche. Deja que se asiente por 1-2 minutos para un canvas perfecto.', 
+            images: ['https://placehold.co/400x300?text=Paso+1', 'https://placehold.co/400x300?text=Paso+1+Alt']
+          },
+          { 
+            title: 'Paso 2: Base Radiante', 
+            description: 'Usa el Essence Glow Serum Primer mezclado con una base de cobertura media para un efecto luminoso. Aplica con una brocha densa desde el centro del rostro hacia afuera, difuminando bien en el cuello para un acabado uniforme. Este look glam brilla bajo las luces de fiesta, así que asegúrate de que la piel quede impecable y radiante.', 
+            images: ['https://placehold.co/400x300?text=Paso+2', 'https://placehold.co/400x300?text=Paso+2+Alt']
+          },
+          { 
+            title: 'Paso 3: Contorno Esculpido', 
+            description: 'Define tu rostro con el Maybelline Fit Me Contour Kit: aplica el bronceador bajo los pómulos y en los laterales de la nariz con un pincel angular, difuminando hacia arriba para un efecto esculpido. Añade iluminador en los pómulos altos, el puente de la nariz y el mentón con un pincel pequeño para un brillo glam que destaque en la pista de baile.', 
+            images: ['https://placehold.co/400x300?text=Paso+3', 'https://placehold.co/400x300?text=Paso+3+Alt']
+          },
+          { 
+            title: 'Paso 4: Ojos Cautivadores', 
+            description: 'Crea un look impactante con la Essence Eyeshadow Palette en tonos pastel: aplica un lila suave en el párpado móvil con un pincel plano, difuminando un rosa pastel en la cuenca para profundidad. Traza un delineador alado con el Maybelline Hyper Easy Liquid Eyeliner, extendiendo la línea hacia afuera para un efecto dramático. Aplica dos capas de máscara para pestañas voluminosas.', 
+            images: ['https://placehold.co/400x300?text=Paso+4', 'https://placehold.co/400x300?text=Paso+4+Alt']
+          },
+          { 
+            title: 'Paso 5: Labios Festivos', 
+            description: 'Perfila tus labios con un lápiz en tono pastel y rellena con el Maybelline Super Stay Vinyl Ink en un tono rosa pastel brillante. Aplica desde el centro para un acabado vinílico que refleje la luz. Agrega un toque de gloss Essence en el centro para un efecto jugoso. Finaliza con un rubor pastel difuminado en las mejillas para un look cohesivo y festivo.', 
+            images: ['https://placehold.co/400x300?text=Paso+5', 'https://placehold.co/400x300?text=Paso+5+Alt']
+          }
+        ], 
+        products: [
+          { name: 'Maybelline Super Stay Skin Tint (Primer)', tooltip: 'Primer para un look glam de larga duración.', searchTerm: 'maybelline skin tint' },
+          { name: 'Essence Glow Serum Primer (Primer)', tooltip: 'Primer para un brillo pastel en fiestas.', searchTerm: 'essence primer' },
+          { name: 'Maybelline Fit Me Contour Kit (Contorno)', tooltip: 'Contorno para un look esculpido y festivo.', searchTerm: 'maybelline contour' },
+          { name: 'Essence Eyeshadow Palette (Pastel Vibes) (Sombras)', tooltip: 'Sombras pasteles para un look glam suave.', searchTerm: 'essence eyeshadow' },
+          { name: 'Maybelline Super Stay Vinyl Ink (Pastel) (Labial)', tooltip: 'Labial pastel brillante para eventos nocturnos.', searchTerm: 'maybelline lipstick' }
+        ]
+      },
+      { 
+        id: 9, 
+        style: 'artístico', 
+        occasion: 'boda', 
+        color: 'neutros', 
+        title: 'Look Artístico de Boda', 
+        image: 'https://placehold.co/800x600?text=Look+9', 
+        steps: [
+          { 
+            title: 'Paso 1: Preparación Elegante', 
+            description: 'Limpia tu piel con un limpiador suave y aplica un sérum hidratante para un acabado liso. Usa el Essence Glow Serum Primer para un canvas neutro: distribuye con una esponja en movimientos ascendentes, enfocándote en las zonas altas para un brillo sutil que complemente el ambiente nupcial. Deja absorber por 1 minuto.', 
+            images: ['https://placehold.co/400x300?text=Paso+1', 'https://placehold.co/400x300?text=Paso+1+Alt']
+          },
+          { 
+            title: 'Paso 2: Base Pulida', 
+            description: 'Aplica la Maybelline Fit Me Matte + Poreless Foundation para un acabado mate y elegante. Usa una brocha densa para distribuir desde el centro del rostro hacia afuera, difuminando cuidadosamente en el cuello y las orejas. Construye cobertura en áreas clave para un look impecable que resista las fotos y el evento largo.', 
+            images: ['https://placehold.co/400x300?text=Paso+2', 'https://placehold.co/400x300?text=Paso+2+Alt']
+          },
+          { 
+            title: 'Paso 3: Ojos Creativos', 
+            description: 'Crea un look artístico con la Essence Eyeshadow Palette en tonos neutros: aplica un beige mate en el párpado móvil con un pincel plano, difuminando un marrón suave en la cuenca para profundidad. Añade un toque de glitter plateado en el centro del párpado para un efecto elegante y audaz, ideal para una boda.', 
+            images: ['https://placehold.co/400x300?text=Paso+3', 'https://placehold.co/400x300?text=Paso+3+Alt']
+          },
+          { 
+            title: 'Paso 4: Delineado Elegante', 
+            description: 'Usa el Maybelline Tattoo Studio Ink Pen para un delineado gráfico sofisticado: dibuja una línea fina desde la esquina interna, extendiéndola en un ala delicada hacia afuera. Para un toque artístico, agrega pequeños puntos o una línea paralela corta sobre el párpado. Difumina ligeramente con un pincel fino para un acabado suave y nupcial.', 
+            images: ['https://placehold.co/400x300?text=Paso+4', 'https://placehold.co/400x300?text=Paso+4+Alt']
+          },
+          { 
+            title: 'Paso 5: Labios y Toque Final', 
+            description: 'Aplica el Essence Juicy Bomb Gloss en un tono neutro para un brillo elegante. Usa el aplicador para rellenar desde el centro, asegurándote de cubrir uniformemente. Complementa con un rubor en crema neutro en los pómulos, difuminando hacia las sienes. Finaliza con un spray fijador para que el look artístico dure toda la celebración.', 
+            images: ['https://placehold.co/400x300?text=Paso+5', 'https://placehold.co/400x300?text=Paso+5+Alt']
+          }
+        ], 
+        products: [
+          { name: 'Essence Glow Serum Primer (Primer)', tooltip: 'Primer para un canvas artístico y duradero.', searchTerm: 'essence primer' },
+          { name: 'Maybelline Fit Me Matte Foundation (Base)', tooltip: 'Base mate para un look artístico preciso.', searchTerm: 'maybelline foundation' },
+          { name: 'Essence Eyeshadow Palette (Neutral Art) (Sombras)', tooltip: 'Sombras neutras para un look artístico elegante.', searchTerm: 'essence eyeshadow' },
+          { name: 'Maybelline Tattoo Studio Ink (Delineador)', tooltip: 'Delineador para líneas gráficas en bodas.', searchTerm: 'maybelline eyeliner' },
+          { name: 'Essence Juicy Bomb Gloss (Neutro) (Gloss)', tooltip: 'Gloss neutro para un toque artístico sutil.', searchTerm: 'essence lipgloss' }
+        ]
+      }
+    ];
+
+    const gallery = document.getElementById('gallery');
+    const favoritesSection = document.getElementById('favorites');
+    const favoritesGallery = document.getElementById('favoritesGallery');
+    const tutorialSection = document.getElementById('tutorial');
+    const tutorialTitle = document.getElementById('tutorialTitle');
+    const progressBar = document.getElementById('progressBar');
+    const stepsDiv = document.getElementById('steps');
+    const productsUl = document.getElementById('products');
+    const backToGallery = document.getElementById('backToGallery');
+    const downloadPDF = document.getElementById('downloadPDF');
+    const styleFilter = document.getElementById('styleFilter');
+    const occasionFilter = document.getElementById('occasionFilter');
+    const colorFilter = document.getElementById('colorFilter');
+    const themeToggle = document.getElementById('themeToggle');
+
+    // Modo claro/oscuro
+    themeToggle.addEventListener('click', () => {
+      document.body.classList.toggle('dark-mode');
+      localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
+      themeToggle.querySelector('svg').innerHTML = document.body.classList.contains('dark-mode') ?
+        '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />' :
+        '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />';
+    });
+    if (localStorage.getItem('theme') === 'dark') {
+      document.body.classList.add('dark-mode');
+      themeToggle.querySelector('svg').innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />';
+    }
+
+    // Sistema de favoritos
+    let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
+    function updateFavoritesGallery() {
+      const favoriteLooks = looks.filter(look => favorites.includes(look.id));
+      favoritesSection.classList.toggle('hidden', favoriteLooks.length === 0);
+      favoritesGallery.innerHTML = favoriteLooks.map(look => `
+        <div class="bg-white shadow-lg rounded-lg overflow-hidden">
+          <img src="${look.image}" alt="${look.title}" class="w-full h-48 object-cover">
+          <div class="p-4 flex justify-between items-center">
+            <div>
+              <h3 class="text-lg font-semibold text-blue-700">${look.title}</h3>
+              <p class="text-gray-600">Estilo: ${look.style} | Ocasión: ${look.occasion} | Colores: ${look.color}</p>
+            </div>
+            <button class="favorite-btn text-blue-700 hover:text-blue-800" data-id="${look.id}" aria-label="Quitar de favoritos">
+              <svg class="w-6 h-6 fill-current" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+            </button>
+          </div>
+        </div>
+      `).join('');
+      document.querySelectorAll('.favorite-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const id = parseInt(e.currentTarget.dataset.id);
+          if (favorites.includes(id)) {
+            favorites = favorites.filter(fav => fav !== id);
+          } else {
+            favorites.push(id);
+          }
+          localStorage.setItem('favorites', JSON.stringify(favorites));
+          updateFavoritesGallery();
+          renderGallery(looks);
+        });
+      });
+    }
+
+    // Gestión de caché para la API
+    const cache = JSON.parse(localStorage.getItem('apiCache')) || {};
+    const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 horas en milisegundos
+
+    function saveToCache(searchTerm, data) {
+      cache[searchTerm] = {
+        data,
+        timestamp: Date.now()
+      };
+      localStorage.setItem('apiCache', JSON.stringify(cache));
+    }
+
+    function getFromCache(searchTerm) {
+      const cached = cache[searchTerm];
+      if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+        return cached.data;
+      }
+      return null;
+    }
+
+    // Función para buscar productos en Open Beauty Facts con reintentos
+    async function fetchProductData(searchTerm, retries = 3, timeout = 5000) {
+      const cachedData = getFromCache(searchTerm);
+      if (cachedData) {
+        return cachedData;
+      }
+
+      for (let i = 0; i < retries; i++) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), timeout);
+          const response = await fetch(
+            `https://world.openbeautyfacts.org/api/v2/search?fields=product_name,brands,ingredients_text,image_url&search_terms=${encodeURIComponent(searchTerm)}`,
+            { signal: controller.signal }
+          );
+          clearTimeout(timeoutId);
+          const data = await response.json();
+          const result = data.products && data.products.length > 0 ? data.products[0] : null;
+          if (result) {
+            saveToCache(searchTerm, result);
+          }
+          return result;
+        } catch (error) {
+          if (error.name === 'AbortError') {
+            console.warn(`Timeout en la consulta de ${searchTerm}`);
+          } else {
+            console.error(`Error al consultar ${searchTerm}:`, error);
+          }
+          if (i === retries - 1) {
+            return null;
+          }
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Espera 1s antes de reintentar
+        }
+      }
+    }
+
+    function renderGallery(filteredLooks) {
+      gallery.innerHTML = filteredLooks.map(look => `
+        <div class="bg-white shadow-lg rounded-lg overflow-hidden">
+          <img src="${look.image}" alt="${look.title}" class="w-full h-48 object-cover">
+          <div class="p-4 flex justify-between items-center">
+            <div>
+              <h3 class="text-lg font-semibold text-blue-700 cursor-pointer" onclick="showTutorial(${look.id})">${look.title}</h3>
+              <p class="text-gray-600">Estilo: ${look.style} | Ocasión: ${look.occasion} | Colores: ${look.color}</p>
+            </div>
+            <button class="favorite-btn text-blue-700 hover:text-blue-800" data-id="${look.id}" aria-label="${favorites.includes(look.id) ? 'Quitar de favoritos' : 'Agregar a favoritos'}">
+              <svg class="w-6 h-6 ${favorites.includes(look.id) ? 'fill-current' : ''}" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+            </button>
+          </div>
+        </div>
+      `).join('');
+      updateFavoritesGallery();
+    }
+
+    async function showTutorial(lookId) {
+      const look = looks.find(l => l.id === lookId);
+      gallery.classList.add('hidden');
+      favoritesSection.classList.add('hidden');
+      tutorialSection.classList.remove('hidden');
+      tutorialTitle.textContent = look.title;
+
+      // Barra de progreso
+      progressBar.innerHTML = look.steps.map((_, idx) => `
+        <div class="progress-dot ${idx === 0 ? 'active' : ''}"></div>
+      `).join('');
+
+      stepsDiv.innerHTML = look.steps.map((step, index) => `
+        <details class="border-b border-blue-200" ${index === 0 ? 'open' : ''}>
+          <summary class="font-semibold text-lg text-blue-600 py-2 cursor-pointer hover:text-blue-800" role="button" aria-controls="step-${index}">${step.title}</summary>
+          <div id="step-${index}" class="p-4">
+            <div class="swiper-container step-swiper-${index}">
+              <div class="swiper-wrapper">
+                ${step.images.map(img => `
+                  <div class="swiper-slide">
+                    <img src="${img}" alt="${step.title}" class="w-full sm:w-1/3 h-32 object-cover rounded mx-auto">
+                  </div>
+                `).join('')}
+              </div>
+              <div class="swiper-button-prev" aria-label="Imagen anterior"></div>
+              <div class="swiper-button-next" aria-label="Imagen siguiente"></div>
+            </div>
+            <p class="text-gray-700 mt-4">${step.description}</p>
+          </div>
+        </details>
+      `).join('');
+
+      // Mostrar spinner inicial para productos
+      productsUl.innerHTML = look.products.map(product => `
+        <li class="tooltip">${product.name} <span class="loading-spinner"></span>
+          <span class="tooltip-text" id="tooltip-${product.name.replace(/\s+/g, '-')}" aria-live="polite">${product.tooltip}</span>
+        </li>
+      `).join('');
+
+      // Consultar API para todos los productos en paralelo
+      const productPromises = look.products.map(async (product, index) => {
+        const tooltipId = `tooltip-${product.name.replace(/\s+/g, '-')}`;
+        const liElement = productsUl.children[index];
+        const tooltipElement = document.getElementById(tooltipId);
+        const spinner = liElement.querySelector('.loading-spinner');
+
+        // Establecer un timeout para ocultar el spinner
+        const timeoutId = setTimeout(() => {
+          if (spinner) spinner.remove();
+          tooltipElement.innerHTML = product.tooltip + '<br><em>No se encontraron datos adicionales.</em>';
+        }, 5000);
+
+        const productData = await fetchProductData(product.searchTerm);
+        clearTimeout(timeoutId);
+        if (spinner) spinner.remove();
+
+        if (productData && productData.ingredients_text) {
+          tooltipElement.innerHTML = `
+            ${product.tooltip}<br>
+            <strong>Ingredientes:</strong> ${productData.ingredients_text}<br>
+            ${productData.image_url ? `<img src="${productData.image_url}" alt="${productData.product_name}" />` : ''}
+          `;
+        } else {
+          tooltipElement.innerHTML = product.tooltip + '<br><em>No se encontraron datos adicionales.</em>';
+        }
+      });
+
+      await Promise.all(productPromises);
+
+      // Inicializar Swiper para cada paso
+      document.querySelectorAll('.swiper-container').forEach((container, idx) => {
+        new Swiper(`.step-swiper-${idx}`, {
+          loop: true,
+          navigation: {
+            nextEl: `.step-swiper-${idx} .swiper-button-prev`,
+            prevEl: `.step-swiper-${idx} .swiper-button-next`,
+          },
+          slidesPerView: 1,
+          spaceBetween: 10,
+          a11y: {
+            enabled: true,
+            prevSlideMessage: 'Imagen anterior',
+            nextSlideMessage: 'Imagen siguiente',
+          },
+        });
+      });
+
+      // Actualizar barra de progreso y cerrar otros detalles
+      const detailsElements = stepsDiv.querySelectorAll('details');
+      detailsElements.forEach((detail, idx) => {
+        detail.addEventListener('toggle', () => {
+          if (detail.open) {
+            detailsElements.forEach(otherDetail => {
+              if (otherDetail !== detail && otherDetail.open) {
+                otherDetail.open = false;
+              }
+            });
+            document.querySelectorAll('.progress-dot').forEach((dot, dotIdx) => {
+              dot.classList.toggle('active', dotIdx === idx);
+            });
+          }
+        });
+      });
+
+      // Generar PDF
+      downloadPDF.onclick = () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        let yOffset = 20;
+        doc.setFontSize(18);
+        doc.text(look.title, 20, yOffset);
+        yOffset += 10;
+        doc.setFontSize(12);
+        look.steps.forEach((step, idx) => {
+          doc.text(`${step.title}:`, 20, yOffset);
+          yOffset += 6;
+          doc.text(step.description, 20, yOffset, { maxWidth: 160 });
+          yOffset += doc.splitTextToSize(step.description, 160).length * 6 + 10;
+        });
+        yOffset += 10;
+        doc.text('Productos Recomendados:', 20, yOffset);
+        yOffset += 6;
+        look.products.forEach(product => {
+          doc.text(`- ${product.name}`, 20, yOffset);
+          yOffset += 6;
+        });
+        doc.save(`${look.title}.pdf`);
+      };
+    }
+
+    backToGallery.addEventListener('click', () => {
+      gallery.classList.remove('hidden');
+      favoritesSection.classList.toggle('hidden', favorites.length === 0);
+      tutorialSection.classList.add('hidden');
+    });
+
+    function filterLooks() {
+      const style = styleFilter.value;
+      const occasion = occasionFilter.value;
+      const color = colorFilter.value;
+
+      const filteredLooks = looks.filter(look => 
+        (style === 'all' || look.style === style) &&
+        (occasion === 'all' || look.occasion === occasion) &&
+        (color === 'all' || look.color === color)
+      );
+
+      renderGallery(filteredLooks);
+    }
+
+    styleFilter.addEventListener('change', filterLooks);
+    occasionFilter.addEventListener('change', filterLooks);
+    colorFilter.addEventListener('change', filterLooks);
+
+    // Render inicial
+    renderGallery(looks);
+  </script>
+</body>
+</html>
